@@ -26,6 +26,10 @@ namespace AzureBlobSearchTest
     public partial class Form1 : Form
     {
         private bool flg = false;
+        /// <summary>
+        /// アップロードするファイルリスト
+        /// </summary>
+        private string[] fileNames = new string[] { "files\\csv\\test.csv", "files\\pdf\\test.pdf" , "files\\xls\\test.xlsx"};
 
         public Form1()
         {
@@ -39,58 +43,39 @@ namespace AzureBlobSearchTest
         /// <param name="e"></param>
         private void button1_Click(object sender, EventArgs e)
         {
-            // Retrieve storage account from connection string.
             CloudStorageAccount storageAccount = CloudStorageAccount.Parse(
                 CloudConfigurationManager.GetSetting("StorageConnectionString"));
-
-            // Create the blob client.
+            
             CloudBlobClient blobClient = storageAccount.CreateCloudBlobClient();
 
-            // Retrieve a reference to a container.
-            CloudBlobContainer container = blobClient.GetContainerReference("testcontainer");
+            List<CloudBlobContainer> containers = new List<CloudBlobContainer>();
 
-            //スリープしないと初回押下時にCreateIfNotExistsでエラー吐かれたりする　処理中にアクセスしてる？
-            //ちゃんと書くなら例外処理を真面目に書く必要あり
-            Thread.Sleep(2000);
+            for (int i = 0; i < fileNames.Length; i++)
+            {
+                var c = blobClient.GetContainerReference("testcontainer" + i);
 
-            // Create the container if it doesn't already exist.
-            container.CreateIfNotExists();
-
-            // Retrieve storage account from connection string.
-            storageAccount = CloudStorageAccount.Parse(
-                CloudConfigurationManager.GetSetting("StorageConnectionString"));
-
-            // Create the blob client.
-            blobClient = storageAccount.CreateCloudBlobClient();
-
-            // Retrieve reference to a previously created container.
-            container = blobClient.GetContainerReference("testcontainer");
-
-            // Retrieve reference to a blob named "myblob".
-            CloudBlockBlob blockBlob = container.GetBlockBlobReference("test.csv");
+                //スリープしないと初回押下時にCreateIfNotExistsでエラー吐かれたりする　処理中にアクセスしてる？
+                //ちゃんと書くなら例外処理を真面目に書く必要あり
+                Thread.Sleep(2000);
+                c.CreateIfNotExists();
+                containers.Add(c);
+            }
             
-            //アップロード用の適当なファイル作る
-            if (!System.IO.File.Exists("test.csv"))
+            
+            for (int i = 0; i < fileNames.Length; i++)
             {
-                using (System.IO.FileStream hStream = System.IO.File.Create("test.csv"))
+                var c = blobClient.GetContainerReference("testcontainer" + i);
+                var blockBlob = c.GetBlockBlobReference(fileNames[i]);
+
+                //アップするファイル全取得
+                using (var fileStream = File.OpenRead(fileNames[i]))
                 {
-                    if (hStream != null)
-                    {
-                        hStream.Close();
-                    }
+                    //アップロード
+                    blockBlob.UploadFromStream(fileStream);
                 }
-                
             }
 
-            using (System.IO.StreamWriter sw = new System.IO.StreamWriter("test.csv"))
-                sw.Write("Id,Name,Age\n0,iino,21\n1,suzuki,25\n2,山田,33");
-
-            // Create or overwrite the "myblob" blob with contents from a local file.
-            using (var fileStream = System.IO.File.OpenRead("test.csv"))
-            {
-                blockBlob.UploadFromStream(fileStream);
-            }
-
+            
             MessageBox.Show("ファイルをアップロードしました。");
         }
 
@@ -101,42 +86,42 @@ namespace AzureBlobSearchTest
         /// <param name="e"></param>
         private void button2_Click(object sender, EventArgs e)
         {
-            // Retrieve storage account from connection string.
             CloudStorageAccount storageAccount = CloudStorageAccount.Parse(
                 CloudConfigurationManager.GetSetting("StorageConnectionString"));
-
-            // Create the blob client.
+            
             CloudBlobClient blobClient = storageAccount.CreateCloudBlobClient();
-
-            // Retrieve reference to a previously created container.
-            CloudBlobContainer container = blobClient.GetContainerReference("testcontainer");
 
             listBox1.Items.Clear();
 
-            // Loop over items within the container and output the length and URI.
-            foreach (IListBlobItem item in container.ListBlobs(null, true))
+            for (int i = 0; i < fileNames.Length; i++)
             {
-
-                if (item.GetType() == typeof(CloudBlockBlob))
+                CloudBlobContainer container = blobClient.GetContainerReference("testcontainer" + i);
+                
+                foreach (IListBlobItem item in container.ListBlobs(null, true))
                 {
-                    CloudBlockBlob blob = (CloudBlockBlob)item;
 
-                    listBox1.Items.Add(string.Format("Block blob of length {0}: {1}", blob.Properties.Length, blob.Uri));
+                    if (item.GetType() == typeof(CloudBlockBlob))
+                    {
+                        CloudBlockBlob blob = (CloudBlockBlob)item;
 
+                        listBox1.Items.Add(string.Format("Block blob of length {0}: {1}", blob.Properties.Length, blob.Uri));
+
+                    }
+                    else if (item.GetType() == typeof(CloudPageBlob))
+                    {
+                        CloudPageBlob pageBlob = (CloudPageBlob)item;
+
+                        listBox1.Items.Add(string.Format("Page blob of length {0}: {1}", pageBlob.Properties.Length, pageBlob.Uri));
+
+                    }
+                    else if (item.GetType() == typeof(CloudBlobDirectory))
+                    {
+                        CloudBlobDirectory directory = (CloudBlobDirectory)item;
+
+                        listBox1.Items.Add(string.Format("Directory: {0}", directory.Uri));
+                    }
                 }
-                else if (item.GetType() == typeof(CloudPageBlob))
-                {
-                    CloudPageBlob pageBlob = (CloudPageBlob)item;
-
-                    listBox1.Items.Add(string.Format("Page blob of length {0}: {1}", pageBlob.Properties.Length, pageBlob.Uri));
-
-                }
-                else if (item.GetType() == typeof(CloudBlobDirectory))
-                {
-                    CloudBlobDirectory directory = (CloudBlobDirectory)item;
-
-                    listBox1.Items.Add(string.Format("Directory: {0}", directory.Uri));
-                }
+                
             }
         }
 
@@ -150,97 +135,178 @@ namespace AzureBlobSearchTest
         {
             flg = false;
 
-            var connection = ApiConnection.Create("datest01", "A53D975119F80AA1D75895645A5234BE");
-
-            var client = new IndexManagementClient(connection);
 
             //前にあったデータは削除
-            client.DeleteIndexAsync("index01").Wait();
-            connection.Execute(new ApiRequest("datasources/testcontainer", HttpMethod.Delete), CancellationToken.None).Wait();
-            connection.Execute(new ApiRequest("indexers/indexer01", HttpMethod.Delete), CancellationToken.None).Wait();
-
-            //データソース設定
-            connection.Execute(new ApiRequest("datasources", HttpMethod.Post, new 
+            for (int i = 0; i < fileNames.Length; i++)
             {
-               
-                    name = "source01",
+                var connection = ApiConnection.Create("datest01", "A53D975119F80AA1D75895645A5234BE");
+                var client = new IndexManagementClient(connection);
+
+                client.DeleteIndexAsync("index" + i).Wait();
+                connection.Execute(new ApiRequest("datasources/testcontainer" + i, HttpMethod.Delete), CancellationToken.None).Wait();
+                connection.Execute(new ApiRequest("indexers/indexer" + i, HttpMethod.Delete), CancellationToken.None).Wait();
+
+                //データソース設定
+                connection.Execute(new ApiRequest("datasources", HttpMethod.Post, new
+                {
+                    name = "source" + i,
                     type = "azureblob",
                     credentials = new { connectionString = "DefaultEndpointsProtocol=https;AccountName=testda01;AccountKey=Yh3sa6UyVcg8puiiBu1EYlesMSJLX45ZFwv0Ws8fxDjCin+5INxmMOBjwN0EaAN0TvFy92gjdfHHmas7lnpEzw==" },
-                    container = new { name = "testcontainer" }
+                    container = new { name = "testcontainer" + i }
 
-                
-            }), CancellationToken.None).Wait();
 
-            //インデックス作成
-             connection.Execute(new ApiRequest("indexes", HttpMethod.Post, new
-               {
+                }), CancellationToken.None).Wait();
 
-                   name = "index01",
-                   fields = new List<F>
+                if (fileNames[i].Contains(".csv"))
+                {
+                    //インデックス作成
+                    connection.Execute(new ApiRequest("indexes", HttpMethod.Post, new
+                    {
+                        name = "index" + i,
+                        fields = new List<F>
                         {
+                           new F
+                           {
+                               name = "metadata_storage_name",
+                               type= "Edm.String",
+                               searchable = true,
+                               sortable = true,
+                               facetable = true,
+                               filterable = true
+                           },
+
                            new F
                            {
                                name = "Id",
                                type= "Edm.String",
+                               searchable = true,
                                key = true
+
                            },
                             new F
                            {
                                name = "Name",
                                type= "Edm.String",
+                               searchable = true,
                            },
                              new F
                            {
                                name = "Age",
                                type= "Edm.String",
+                               searchable = true,
                            }
                        }
 
-               }), CancellationToken.None).Wait();
+                    }), CancellationToken.None).Wait();
 
-            //インデクサ設定(ヘッダーのみ)
-            connection.Execute(new ApiRequest("indexers", HttpMethod.Post, new
-            {
-
-                name = "indexer01",
-                dataSourceName = "source01",
-                targetIndexName = "index01",
-                parameters = new
-                {
-                    configuration = new
+                    //インデクサ設定(ヘッダーのみ)
+                    connection.Execute(new ApiRequest("indexers", HttpMethod.Post, new
                     {
-                        parsingMode = "delimitedText",
-                        firstLineContainsHeaders = true
-                    }
-                }
 
-
-            }), CancellationToken.None).Wait();
-
-            //インデクサ作成(ヘッダー以外のみ)
-            connection.Execute(new ApiRequest("indexers", HttpMethod.Post, new 
-            {
-               
-                    name = "indexer01",
-                    dataSourceName = "source01",
-                    targetIndexName = "index01",
-                    parameters = new
-                    {
-                        configuration = new
+                        name = "indexer" + i,
+                        dataSourceName = "source" + i,
+                        targetIndexName = "index" + i,
+                        parameters = new
                         {
-                            parsingMode = "delimitedText",
-                            delimitedTextHeaders = "Id,Name,Age",
+                            configuration = new
+                            {
+                                parsingMode = "delimitedText",
+                                firstLineContainsHeaders = true
+                            }
                         }
-                    }
 
+
+                    }), CancellationToken.None).Wait();
+
+                    //インデクサ作成(ヘッダー以外のみ)
+                    connection.Execute(new ApiRequest("indexers", HttpMethod.Post, new
+                    {
+
+                        name = "indexer" + i,
+                        dataSourceName = "source" + i,
+                        targetIndexName = "index" + i,
+                        parameters = new
+                        {
+                            configuration = new
+                            {
+                                parsingMode = "delimitedText",
+                                delimitedTextHeaders = "Id,Name,Age",
+                            }
+                        }
+
+
+                    }), CancellationToken.None).Wait();
+
+
+                    connection.Execute(new ApiRequest("indexers/indexer" + i + "/run", HttpMethod.Post), CancellationToken.None).Wait();
+
+                }
+               
+                else
+                {
+
+                    //インデックス作成
+                    connection.Execute(new ApiRequest("indexes", HttpMethod.Post, new
+                    {
+                        name = "index" + i,
+                        fields = new List<F>
+                        {
+
+                             new F
+                           {
+                               name = "metadata_storage_content_md5",
+                               type= "Edm.String",
+                               searchable = true,
+                               sortable = true,
+                               facetable = true,
+                               filterable = true,
+                               key = true
+                           },
+
+                           new F
+                           {
+                               name = "metadata_storage_name",
+                               type= "Edm.String",
+                               searchable = true,
+                               sortable = true,
+                               facetable = true,
+                               filterable = true,
+                           },
+                            new F
+                           {
+                               name = "content",
+                               type= "Edm.String",
+                               searchable = true,
+                               sortable = true,
+                               facetable = true,
+                               filterable = true
+                           }
+                       }
+
+                    }), CancellationToken.None).Wait();
+
+                    //インデクサ設定
+                    connection.Execute(new ApiRequest("indexers", HttpMethod.Post, new
+                    {
+
+                        name = "indexer" + i,
+                        dataSourceName = "source" + i,
+                        targetIndexName = "index" + i,
+
+
+                    }), CancellationToken.None).Wait();
+
+                    connection.Execute(new ApiRequest("indexers/indexer" + i + "/run", HttpMethod.Post), CancellationToken.None).Wait();
+
+                }
                 
-            }), CancellationToken.None).Wait();
 
 
-            connection.Execute(new ApiRequest("indexers/indexer01/run", HttpMethod.Post), CancellationToken.None).Wait();
+            }
+
 
             await Task.Run(()=> Thread.Sleep(5000));
-
+            MessageBox.Show("インデックスの設定が終了したよ");
 
             flg = true;
         }
@@ -263,18 +329,23 @@ namespace AzureBlobSearchTest
             // 検索を行う場合は IndexQueryClient を使う
             var c = new IndexQueryClient(connection);
 
-            // SearchQueryの引数が検索したい文字列
-            var result = await c.SearchAsync("index01", new SearchQuery(textBox1.Text).Count(true));
-
-            Console.WriteLine("count = " + result.Body.Records.Count());
-
-
             textBox2.Clear();
 
-            foreach (var item in result.Body.Records)
+            for (int i = 0; i < fileNames.Length; i++)
             {
-                textBox2.AppendText(string.Format("Id={0} Name={1} Age={2}\n", item.Properties["Id"], item.Properties["Name"], item.Properties["Age"]));
+                // SearchQueryの引数が検索したい文字列
+                var result = await c.SearchAsync("index" + i, new SearchQuery(textBox1.Text).Count(true));
+
+                if (result.StatusCode == HttpStatusCode.NotFound) continue;
+
+               
+
+                foreach (var item in result.Body.Records)
+                {
+                   textBox2.AppendText(string.Format("filename={0}\n", item.Properties["metadata_storage_name"]));
+                }
             }
+            
         }
     }
 
@@ -286,6 +357,10 @@ namespace AzureBlobSearchTest
         public string name { get; set; }
         public string type { get; set; }
         public bool key { get; set; }
+        public bool searchable { get; set; }
+        public bool filterable { get; set; }
+        public bool sortable { get; set; }
+        public bool facetable { get; set; }
     }
    
 }
